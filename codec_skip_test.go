@@ -3,11 +3,32 @@ package avro_test
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/iskorotkov/avro/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const decodeTimeout = 100 * time.Millisecond
+
+func decodeWithTimeout(t *testing.T, decoder *avro.Decoder, v any) error {
+	t.Helper()
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- decoder.Decode(v)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(decodeTimeout):
+		t.Fatalf("decode did not finish within %s", decodeTimeout)
+		return nil
+	}
+}
 
 func TestDecoder_SkipBool(t *testing.T) {
 	defer ConfigTeardown()
@@ -261,6 +282,28 @@ func TestDecoder_SkipArray(t *testing.T) {
 	assert.Equal(t, TestPartialRecord{B: "foo"}, got)
 }
 
+func TestDecoder_SkipArrayEOF(t *testing.T) {
+	defer ConfigTeardown()
+
+	data := []byte{0xfe, 0x90, 0x90, 0x90, 0x90, 0x90, 0x00, 0x36, 0x36}
+	schema := `{
+	"type": "record",
+	"name": "test_huge_skip",
+	"fields" : [
+		{"name": "a", "type": {"type": "array", "items": "int"}},
+		{"name": "b", "type": "string"}
+	]
+}`
+
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got TestPartialRecord
+	err = decodeWithTimeout(t, dec, &got)
+
+	require.ErrorContains(t, err, "unexpected EOF")
+}
+
 func TestDecoder_SkipArrayBlocks(t *testing.T) {
 	defer ConfigTeardown()
 
@@ -307,6 +350,27 @@ func TestDecoder_SkipMap(t *testing.T) {
 	assert.Equal(t, TestPartialRecord{B: "foo"}, got)
 }
 
+func TestDecoder_SkipMapEOF(t *testing.T) {
+	defer ConfigTeardown()
+
+	data := []byte{0xfe, 0x90, 0x90, 0x90, 0x90, 0x90, 0x00, 0x02, 0x66}
+	schema := `{
+	"type": "record",
+	"name": "test",
+	"fields" : [
+		{"name": "a", "type": {"type": "map", "values": "int"}},
+		{"name": "b", "type": "string"}
+	]
+}`
+
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got TestPartialRecord
+	err = decodeWithTimeout(t, dec, &got)
+
+	require.ErrorContains(t, err, "unexpected EOF")
+}
 func TestDecoder_SkipMapBlocks(t *testing.T) {
 	defer ConfigTeardown()
 
