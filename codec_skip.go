@@ -154,6 +154,9 @@ func (d *sliceSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
 
 		for range l {
 			d.decoder.Decode(nil, r)
+			if r.Error != nil {
+				break
+			}
 		}
 	}
 }
@@ -186,6 +189,9 @@ func (d *mapSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
 		for range l {
 			r.SkipString()
 			d.decoder.Decode(nil, r)
+			if r.Error != nil {
+				break
+			}
 		}
 	}
 }
