@@ -371,6 +371,7 @@ func TestDecoder_SkipMapEOF(t *testing.T) {
 
 	require.ErrorContains(t, err, "unexpected EOF")
 }
+
 func TestDecoder_SkipMapBlocks(t *testing.T) {
 	defer ConfigTeardown()
 
