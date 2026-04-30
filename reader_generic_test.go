@@ -226,9 +226,7 @@ func TestReader_ReadMapCB_StopsOnError(t *testing.T) {
 
 	r.ReadMapCB(func(r *avro.Reader, field string) bool {
 		callbackCalls++
-		if callbackCalls >= 1 {
-			r.Error = errors.New("stop")
-		}
+		r.Error = errors.New("stop")
 		return true
 	})
 
@@ -243,9 +241,7 @@ func TestReader_ReadArrayCB_StopsOnError(t *testing.T) {
 
 	r.ReadArrayCB(func(r *avro.Reader) bool {
 		callbackCalls++
-		if callbackCalls >= 1 {
-			r.Error = errors.New("stop")
-		}
+		r.Error = errors.New("stop")
 		return true
 	})
 
