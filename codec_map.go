@@ -57,12 +57,19 @@ type mapDecoder struct {
 }
 
 func (d *mapDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
+	var size int
 	isNil := d.mapType.UnsafeIsNil(ptr)
 
 	for {
 		l, _ := r.ReadBlockHeader()
 		if l == 0 {
 			break
+		}
+
+		size += int(l)
+		if size > r.cfg.getMaxMapAllocSize() {
+			r.ReportError("decode map", "size is greater than `Config.MaxMapAllocSize`")
+			return
 		}
 
 		if isNil {
@@ -117,12 +124,19 @@ type mapDecoderUnmarshaler struct {
 }
 
 func (d *mapDecoderUnmarshaler) Decode(ptr unsafe.Pointer, r *Reader) {
+	var size int
 	isNil := d.mapType.UnsafeIsNil(ptr)
 
 	for {
 		l, _ := r.ReadBlockHeader()
 		if l == 0 {
 			break
+		}
+
+		size += int(l)
+		if size > r.cfg.getMaxMapAllocSize() {
+			r.ReportError("decode map", "size is greater than `Config.MaxMapAllocSize`")
+			return
 		}
 
 		if isNil {
