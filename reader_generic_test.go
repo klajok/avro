@@ -2,6 +2,7 @@ package avro_test
 
 import (
 	"bytes"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -216,4 +217,38 @@ func TestReader_ReadNextUnsupportedType(t *testing.T) {
 	_ = r.ReadNext(schema)
 
 	assert.Error(t, r.Error)
+}
+
+func TestReader_ReadMapCB_StopsOnError(t *testing.T) {
+	r := avro.NewReader(bytes.NewReader([]byte{0x72}), 10) // Block count = 57
+
+	callbackCalls := 0
+
+	r.ReadMapCB(func(r *avro.Reader, field string) bool {
+		callbackCalls++
+		if callbackCalls >= 1 {
+			r.Error = errors.New("stop")
+		}
+		return true
+	})
+
+	assert.Equal(t, 1, callbackCalls)
+	require.ErrorContains(t, r.Error, "stop")
+}
+
+func TestReader_ReadArrayCB_StopsOnError(t *testing.T) {
+	r := avro.NewReader(bytes.NewReader([]byte{0x72}), 10) // Block count = 57
+
+	callbackCalls := 0
+
+	r.ReadArrayCB(func(r *avro.Reader) bool {
+		callbackCalls++
+		if callbackCalls >= 1 {
+			r.Error = errors.New("stop")
+		}
+		return true
+	})
+
+	assert.Equal(t, 1, callbackCalls)
+	require.ErrorContains(t, r.Error, "stop")
 }
