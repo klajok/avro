@@ -113,6 +113,73 @@ func TestDecoder_MapMapError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestDecoder_MapBigMap(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 20}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{0x72} // map size 57
+	schema := `{"type":"map", "values": "string"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got map[string]string
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxMapAllocSize`")
+}
+
+func TestDecoder_MapMultiBlockExceedsMaxAlloc(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	// Two blocks of 3 entries each. Each block alone is under the limit (3 <= 5),
+	// but the cumulative count (6) exceeds it — this is the chunking-attack path.
+	data := []byte{
+		0x06,                   // block 1: l = 3
+		0x02, 0x61, 0x02, 0x78, // "a" -> "x"
+		0x02, 0x62, 0x02, 0x79, // "b" -> "y"
+		0x02, 0x63, 0x02, 0x7a, // "c" -> "z"
+		0x06, // block 2: l = 3 (cumulative = 6 > 5)
+	}
+	schema := `{"type":"map", "values": "string"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got map[string]string
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxMapAllocSize`")
+}
+
+func TestDecoder_MapMultiBlockUnderMaxAlloc(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 10}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,                   // block 1: l = 3
+		0x02, 0x61, 0x02, 0x78, // "a" -> "x"
+		0x02, 0x62, 0x02, 0x79, // "b" -> "y"
+		0x02, 0x63, 0x02, 0x7a, // "c" -> "z"
+		0x06,                   // block 2: l = 3 (cumulative = 6 <= 10)
+		0x02, 0x64, 0x02, 0x77, // "d" -> "w"
+		0x02, 0x65, 0x02, 0x76, // "e" -> "v"
+		0x02, 0x66, 0x02, 0x75, // "f" -> "u"
+		0x00, // end
+	}
+	schema := `{"type":"map", "values": "string"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got map[string]string
+	err = dec.Decode(&got)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"a": "x", "b": "y", "c": "z",
+		"d": "w", "e": "v", "f": "u",
+	}, got)
+}
+
 type textUnmarshallerInt int
 
 func (t *textUnmarshallerInt) UnmarshalText(text []byte) error {
@@ -141,6 +208,41 @@ func TestDecoder_MapUnmarshallerMap(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, wantVal, v)
 	}
+}
+
+func TestDecoder_MapBigUnmarshallerMap(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 20}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{0x72} // map size 57
+	schema := `{"type":"map", "values": "string"}`
+	dec, _ := avro.NewDecoder(schema, bytes.NewReader(data))
+
+	var got map[*textUnmarshallerInt]string
+	err := dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxMapAllocSize`")
+}
+
+func TestDecoder_MapMultiBlockUnmarshallerExceedsMaxAlloc(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,                   // block 1: l = 3
+		0x02, 0x31, 0x02, 0x78, // "1" -> "x"
+		0x02, 0x32, 0x02, 0x79, // "2" -> "y"
+		0x02, 0x33, 0x02, 0x7a, // "3" -> "z"
+		0x06, // block 2: l = 3 (cumulative = 6 > 5)
+	}
+	schema := `{"type":"map", "values": "string"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got map[*textUnmarshallerInt]string
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxMapAllocSize`")
 }
 
 type textUnmarshallerNope int

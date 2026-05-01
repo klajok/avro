@@ -142,6 +142,7 @@ func TestDecoder_ArrayMaxAllocationError(t *testing.T) {
 
 func TestDecoder_ArrayExceedMaxSliceAllocationConfig(t *testing.T) {
 	avro.DefaultConfig = avro.Config{MaxSliceAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
 
 	// 10 (long) gets encoded to 0x14
 	data := []byte{0x14}
@@ -153,4 +154,47 @@ func TestDecoder_ArrayExceedMaxSliceAllocationConfig(t *testing.T) {
 	err = dec.Decode(&got)
 
 	assert.Error(t, err)
+}
+
+func TestDecoder_ArrayMultiBlockExceedsMaxAlloc(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxSliceAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	// Two blocks of 3 entries each. Each block alone is under the limit (3 <= 5),
+	// but the cumulative count (6) exceeds it — this is the chunking-attack path.
+	data := []byte{
+		0x06,             // block 1: l = 3
+		0x00, 0x01, 0x00, // false, true, false
+		0x06, // block 2: l = 3 (cumulative = 6 > 5)
+	}
+	schema := `{"type":"array", "items": { "type": "boolean" }}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got []bool
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxSliceAllocSize`")
+}
+
+func TestDecoder_ArrayMultiBlockUnderMaxAlloc(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxSliceAllocSize: 10}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,             // block 1: l = 3
+		0x00, 0x01, 0x00, // false, true, false
+		0x06,             // block 2: l = 3 (cumulative = 6 <= 10)
+		0x01, 0x00, 0x01, // true, false, true
+		0x00, // end
+	}
+	schema := `{"type":"array", "items": { "type": "boolean" }}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got []bool
+	err = dec.Decode(&got)
+
+	require.NoError(t, err)
+	assert.Equal(t, []bool{false, true, false, true, false, true}, got)
 }
