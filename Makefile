@@ -1,7 +1,7 @@
 # Format all files
 fmt:
 	@echo "==> Formatting source"
-	@golangci-lint fmt ./...
+	@go tool golangci-lint fmt ./...
 	@echo "==> Done"
 .PHONY: fmt
 
@@ -19,7 +19,7 @@ test:
 
 # Lint the project
 lint:
-	@golangci-lint run ./...
+	@go tool golangci-lint run ./...
 .PHONY: lint
 
 # Run CI tasks
