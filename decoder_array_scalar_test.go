@@ -2,6 +2,7 @@ package avro_test
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 	"time"
 
@@ -210,8 +211,8 @@ func TestDecoder_ArrayScalarGoInt(t *testing.T) {
 		roundTripScalarArray(t, `{"type":"array","items":"int"}`, []int{0, -1, 1, 1234567})
 	})
 	t.Run("long schema", func(t *testing.T) {
-		if intSize := 32 << (^uint(0) >> 63); intSize != 64 {
-			t.Skipf("requires 64-bit int (got %d-bit)", intSize)
+		if strconv.IntSize != 64 {
+			t.Skipf("requires 64-bit int (got %d-bit)", strconv.IntSize)
 		}
 		roundTripScalarArray(t, `{"type":"array","items":"long"}`, []int{0, -1, 1, 1 << 50})
 	})

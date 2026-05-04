@@ -251,6 +251,143 @@ func TestReader_ReadInt(t *testing.T) {
 	}
 }
 
+func TestReader_ReadIntSlowPathEOF(t *testing.T) {
+	data := []byte{0x80, 0x80, 0x80, 0x80, 0x80}
+	r := avro.NewReader(bytes.NewReader(data), 2)
+
+	got := r.ReadInt()
+
+	assert.Zero(t, got)
+	assert.EqualError(t, r.Error, "reading int: EOF")
+}
+
+func TestReader_ReadLongSlowPathEOF(t *testing.T) {
+	data := []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80}
+	r := avro.NewReader(bytes.NewReader(data), 3)
+
+	got := r.ReadLong()
+
+	assert.Zero(t, got)
+	assert.EqualError(t, r.Error, "reading long: EOF")
+}
+
+func TestReader_ReadBlockHeaderBounds(t *testing.T) {
+	type testCase struct {
+		name    string
+		data    []byte
+		length  int
+		size    int
+		wantErr string
+	}
+
+	tests := []testCase{
+		{
+			name:   "positive length",
+			data:   []byte{0x06},
+			length: 3,
+		},
+		{
+			name:   "negative length with size",
+			data:   []byte{0x05, 0x08},
+			length: 3,
+			size:   4,
+		},
+		{
+			name:    "skip size negative",
+			data:    []byte{0x03, 0x01},
+			wantErr: "avro: read block header: skip size is too small",
+		},
+	}
+
+	switch strconv.IntSize {
+	case 32:
+		tests = append(tests,
+			testCase{
+				name:    "length too big on 32-bit",
+				data:    []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0x0f},
+				wantErr: "avro: read block header: block length is too big",
+			},
+			testCase{
+				name:    "length too small on 32-bit",
+				data:    []byte{0xff, 0xff, 0xff, 0xff, 0x0f},
+				wantErr: "avro: read block header: block length is too small",
+			},
+			testCase{
+				name:    "skip size too big on 32-bit",
+				data:    []byte{0x03, 0xfe, 0xff, 0xff, 0xff, 0xff, 0x0f},
+				wantErr: "avro: read block header: skip size is too big",
+			},
+		)
+	case 64:
+		tests = append(tests, testCase{
+			name:    "length min int64",
+			data:    []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01},
+			wantErr: "avro: read block header: block length is too small",
+		})
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			r := avro.NewReader(bytes.NewReader(test.data), 4)
+
+			length, size := r.ReadBlockHeader()
+
+			assert.Equal(t, test.length, length)
+			assert.Equal(t, test.size, size)
+			if test.wantErr == "" {
+				require.NoError(t, r.Error)
+			} else {
+				assert.EqualError(t, r.Error, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestReader_SkipNBytesInt64(t *testing.T) {
+	tests := []struct {
+		name        string
+		n           int64
+		wantErr     string
+		wantNextInt int32
+	}{
+		{
+			name:        "valid",
+			n:           3,
+			wantNextInt: 27,
+		},
+		{
+			name:    "negative",
+			n:       -1,
+			wantErr: "avro: skip n bytes: n is negative",
+		},
+		{
+			name:    "exceeds max int on 32-bit",
+			n:       int64(1 << 31),
+			wantErr: "avro: skip n bytes: n exceeds max int",
+		},
+	}
+
+	if strconv.IntSize != 32 {
+		tests = tests[:len(tests)-1]
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			r := avro.NewReader(bytes.NewReader([]byte{0x01, 0x01, 0x01, 0x36}), 2)
+
+			r.SkipNBytesInt64(test.n)
+
+			if test.wantErr == "" {
+				require.NoError(t, r.Error)
+				assert.Equal(t, test.wantNextInt, r.ReadInt())
+				require.NoError(t, r.Error)
+			} else {
+				assert.EqualError(t, r.Error, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestReader_ReadIntShortReadAcrossBuffer(t *testing.T) {
 	data := []byte{0xe2, 0xa2, 0xf3, 0xad}
 	r := avro.NewReader(bytes.NewReader(data), 3)
@@ -677,8 +814,8 @@ func TestReader_ReadStringFastPathIsntBoundToBuffer(t *testing.T) {
 func TestReader_ReadBlockHeader(t *testing.T) {
 	tests := []struct {
 		data []byte
-		len  int64
-		size int64
+		len  int
+		size int
 	}{
 		{
 			data: []byte{0x80, 0x01},

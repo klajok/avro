@@ -3,6 +3,7 @@ package avro_test
 import (
 	"bytes"
 	"errors"
+	"math"
 	"strconv"
 	"testing"
 
@@ -151,6 +152,30 @@ func TestDecoder_MapMultiBlockExceedsMaxAlloc(t *testing.T) {
 	assert.ErrorContains(t, err, "size is greater than `Config.MaxMapAllocSize`")
 }
 
+func TestDecoder_MapMultiBlockExceedsMaxInt(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,                   // block 1: l = 3
+		0x02, 0x61, 0x02, 0x78, // "a" -> "x"
+		0x02, 0x62, 0x02, 0x79, // "b" -> "y"
+		0x02, 0x63, 0x02, 0x7a, // "c" -> "z"
+	}
+	// block 2: l = max int - 2
+	w := avro.NewWriter(nil, 0)
+	w.WriteLong(int64(math.MaxInt - 2))
+	data = append(data, w.Buffer()...)
+	schema := `{"type":"map", "values": "string"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got map[string]string
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxMapAllocSize`")
+}
+
 func TestDecoder_MapMultiBlockUnderMaxAlloc(t *testing.T) {
 	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 10}.Freeze()
 	defer ConfigTeardown()
@@ -243,6 +268,30 @@ func TestDecoder_MapMultiBlockUnmarshallerExceedsMaxAlloc(t *testing.T) {
 	err = dec.Decode(&got)
 
 	assert.ErrorContains(t, err, "size is greater than `Config.MaxMapAllocSize`")
+}
+
+func TestDecoder_MapMultiBlockUnmarshallerExceedsMaxInt(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxMapAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,                   // block 1: l = 3
+		0x02, 0x31, 0x02, 0x78, // "1" -> "x"
+		0x02, 0x32, 0x02, 0x79, // "2" -> "y"
+		0x02, 0x33, 0x02, 0x7a, // "3" -> "z"
+	}
+	// block 2: l = max int - 2
+	w := avro.NewWriter(nil, 0)
+	w.WriteLong(int64(math.MaxInt - 2))
+	data = append(data, w.Buffer()...)
+	schema := `{"type":"map", "values": "string"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got map[*textUnmarshallerInt]string
+	err = dec.Decode(&got)
+
+	require.EqualError(t, err, "avro: decode map: size is greater than `Config.MaxMapAllocSize`")
 }
 
 type textUnmarshallerNope int

@@ -1,5 +1,20 @@
 package avro
 
+import "math"
+
+// SkipNBytes skips the given number of bytes in the reader.
+func (r *Reader) SkipNBytesInt64(n int64) {
+	if n < 0 {
+		r.ReportError("skip n bytes", "n is negative")
+		return
+	}
+	if n > math.MaxInt {
+		r.ReportError("skip n bytes", "n exceeds max int")
+		return
+	}
+	r.SkipNBytes(int(n))
+}
+
 // SkipNBytes skips the given number of bytes in the reader.
 func (r *Reader) SkipNBytes(n int) {
 	read := 0
@@ -63,17 +78,11 @@ func (r *Reader) SkipDouble() {
 // SkipString skips a String in the reader.
 func (r *Reader) SkipString() {
 	size := r.ReadLong()
-	if size <= 0 {
-		return
-	}
-	r.SkipNBytes(int(size))
+	r.SkipNBytesInt64(size)
 }
 
 // SkipBytes skips Bytes in the reader.
 func (r *Reader) SkipBytes() {
 	size := r.ReadLong()
-	if size <= 0 {
-		return
-	}
-	r.SkipNBytes(int(size))
+	r.SkipNBytesInt64(size)
 }

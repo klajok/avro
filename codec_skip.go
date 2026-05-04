@@ -148,7 +148,7 @@ func (d *sliceSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
 		}
 
 		if size > 0 {
-			r.SkipNBytes(int(size))
+			r.SkipNBytes(size)
 			continue
 		}
 
@@ -182,7 +182,7 @@ func (d *mapSkipDecoder) Decode(_ unsafe.Pointer, r *Reader) {
 		}
 
 		if size > 0 {
-			r.SkipNBytes(int(size))
+			r.SkipNBytes(size)
 			continue
 		}
 

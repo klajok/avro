@@ -2,6 +2,7 @@ package avro_test
 
 import (
 	"bytes"
+	"math"
 	"testing"
 
 	"github.com/iskorotkov/avro/v2"
@@ -167,6 +168,71 @@ func TestDecoder_ArrayMultiBlockExceedsMaxAlloc(t *testing.T) {
 		0x00, 0x01, 0x00, // false, true, false
 		0x06, // block 2: l = 3 (cumulative = 6 > 5)
 	}
+	schema := `{"type":"array", "items": { "type": "boolean" }}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got []bool
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxSliceAllocSize`")
+}
+
+func TestDecoder_ArraySliceExceedsMaxAlloc(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxSliceAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,             // block 1: l = 3
+		0x00, 0x01, 0x00, // 3 int values
+		0x06, // block 2: l = 3 (cumulative = 6 > 5)
+	}
+	schema := `{"type":"array", "items": "int"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got []int
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxSliceAllocSize`")
+}
+
+func TestDecoder_ArraySliceExceedsMaxInt(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxSliceAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,             // block 1: l = 3
+		0x00, 0x01, 0x00, // 3 int values
+	}
+	// block 2: l = max int - 2
+	w := avro.NewWriter(nil, 0)
+	w.WriteLong(int64(math.MaxInt - 2))
+	data = append(data, w.Buffer()...)
+
+	schema := `{"type":"array", "items": "int"}`
+	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	require.NoError(t, err)
+
+	var got []int
+	err = dec.Decode(&got)
+
+	assert.ErrorContains(t, err, "size is greater than `Config.MaxSliceAllocSize`")
+}
+
+func TestDecoder_ArrayMultiBlockExceedsMaxInt(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxSliceAllocSize: 13}.Freeze()
+	defer ConfigTeardown()
+
+	data := []byte{
+		0x06,             // block 1: l = 3
+		0x00, 0x01, 0x00, // false, true, false
+	}
+	// block 2: l = max int - 2
+	w := avro.NewWriter(nil, 0)
+	w.WriteLong(int64(math.MaxInt - 2))
+	data = append(data, w.Buffer()...)
+
 	schema := `{"type":"array", "items": { "type": "boolean" }}`
 	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
 	require.NoError(t, err)
