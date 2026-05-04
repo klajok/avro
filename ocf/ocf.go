@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 
 	"github.com/iskorotkov/avro/v2"
@@ -201,7 +202,16 @@ func (d *Decoder) readBlock() int64 {
 	}
 
 	count := d.reader.ReadLong()
-	size := d.reader.ReadLong()
+	size64 := d.reader.ReadLong()
+	if size64 < 0 {
+		d.reader.ReportError("ocf decoder: read block", "block size is too small")
+		return 0
+	}
+	if size64 > math.MaxInt {
+		d.reader.ReportError("ocf decoder: read block", "block size is too big")
+		return 0
+	}
+	size := int(size64)
 
 	// Read the blocks data
 	switch {

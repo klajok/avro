@@ -214,7 +214,11 @@ func TestDecoder_ArrayScalarGoInt(t *testing.T) {
 		if strconv.IntSize != 64 {
 			t.Skipf("requires 64-bit int (got %d-bit)", strconv.IntSize)
 		}
-		roundTripScalarArray(t, `{"type":"array","items":"long"}`, []int{0, -1, 1, 1 << 50})
+		// `1 << 50` as an untyped constant in []int{...} would overflow int at
+		// compile time on 32-bit. Route through a typed int64 so the conversion
+		// happens at runtime, gated by the strconv.IntSize check above.
+		var v int64 = 1 << 50
+		roundTripScalarArray(t, `{"type":"array","items":"long"}`, []int{0, -1, 1, int(v)})
 	})
 }
 
