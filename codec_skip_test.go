@@ -301,7 +301,12 @@ func TestDecoder_SkipArrayEOF(t *testing.T) {
 	var got TestPartialRecord
 	err = decodeWithTimeout(t, dec, &got)
 
-	require.ErrorContains(t, err, "unexpected EOF")
+	// On 64-bit the huge block length consumes the rest of the stream and
+	// surfaces as "unexpected EOF". On 32-bit ReadBlockHeader rejects the
+	// out-of-range length before consumption ("block length is too big").
+	// Both are acceptable; the key invariant verified here is that the
+	// skip path doesn't hang (enforced by decodeWithTimeout).
+	require.Error(t, err)
 }
 
 func TestDecoder_SkipArrayBlocks(t *testing.T) {
@@ -369,7 +374,10 @@ func TestDecoder_SkipMapEOF(t *testing.T) {
 	var got TestPartialRecord
 	err = decodeWithTimeout(t, dec, &got)
 
-	require.ErrorContains(t, err, "unexpected EOF")
+	// See TestDecoder_SkipArrayEOF — on 32-bit the new ReadBlockHeader
+	// bound rejects the crafted huge length before EOF is reached, and
+	// the test's purpose (no infinite loop) is enforced by the timeout.
+	require.Error(t, err)
 }
 
 func TestDecoder_SkipMapBlocks(t *testing.T) {
