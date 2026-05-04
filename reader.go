@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"unsafe"
 )
@@ -369,13 +370,33 @@ func (r *Reader) readBytes(op string) []byte {
 }
 
 // ReadBlockHeader reads a Block Header from the Reader.
-func (r *Reader) ReadBlockHeader() (int64, int64) {
-	length := r.ReadLong()
-	if length < 0 {
-		size := r.ReadLong()
-
-		return -length, size
+func (r *Reader) ReadBlockHeader() (int, int) {
+	length64 := r.ReadLong()
+	if length64 > math.MaxInt {
+		r.ReportError("read block header", "block length is too big")
+		return 0, 0
+	}
+	// check for too small value on 32-bit architecture and for math.MinInt on both 32- and 64-bit which cannot be negated
+	if length64 <= math.MinInt {
+		r.ReportError("read block header", "block length is too small")
+		return 0, 0
 	}
 
-	return length, 0
+	length := int(length64)
+	if length >= 0 {
+		return length, 0
+	}
+
+	size64 := r.ReadLong()
+	if size64 > math.MaxInt {
+		r.ReportError("read block header", "skip size is too big")
+		return 0, 0
+	}
+	if size64 < 0 {
+		r.ReportError("read block header", "skip size is too small")
+		return 0, 0
+	}
+	size := int(size64)
+
+	return -length, size
 }

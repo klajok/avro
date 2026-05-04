@@ -2,6 +2,7 @@ package avro
 
 import (
 	"bytes"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -249,4 +250,30 @@ func TestGenericReceiver_UnsupportedType(t *testing.T) {
 	_, err := genericReceiver(schema)
 
 	assert.Error(t, err)
+}
+
+func TestGenericDecode_MaxInt(t *testing.T) {
+	DefaultConfig = Config{MaxSliceAllocSize: 5}.Freeze()
+	defer ConfigTeardown()
+
+	schema := MustParse(`{"type":"array", "items": "int"}`)
+
+	data := []byte{
+		0x06,             // block 1: l = 3
+		0x00, 0x01, 0x00, // 3 int values
+	}
+	// block 2: l = max int - 2
+	w := NewWriter(nil, 0)
+	w.WriteLong(int64(math.MaxInt - 2))
+	data = append(data, w.Buffer()...)
+
+	r := NewReader(bytes.NewReader(data), 10)
+
+	typ, err := genericReceiver(schema)
+	require.NoError(t, err)
+	dec := decoderOfType(newDecoderContext(DefaultConfig.(*frozenConfig)), schema, typ)
+
+	genericDecode(typ, dec, r)
+
+	assert.EqualError(t, r.Error, "avro: decode array: size is greater than `Config.MaxSliceAllocSize`")
 }

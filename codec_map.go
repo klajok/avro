@@ -66,14 +66,14 @@ func (d *mapDecoder) Decode(ptr unsafe.Pointer, r *Reader) {
 			break
 		}
 
-		size += int(l)
-		if size > r.cfg.getMaxMapAllocSize() {
+		if l > r.cfg.getMaxMapAllocSize()-size {
 			r.ReportError("decode map", "size is greater than `Config.MaxMapAllocSize`")
 			return
 		}
+		size += l
 
 		if isNil {
-			d.mapType.UnsafeSet(ptr, d.mapType.UnsafeMakeMap(int(l)))
+			d.mapType.UnsafeSet(ptr, d.mapType.UnsafeMakeMap(l))
 			isNil = false
 		}
 
@@ -133,14 +133,14 @@ func (d *mapDecoderUnmarshaler) Decode(ptr unsafe.Pointer, r *Reader) {
 			break
 		}
 
-		size += int(l)
-		if size > r.cfg.getMaxMapAllocSize() {
+		if l > r.cfg.getMaxMapAllocSize()-size {
 			r.ReportError("decode map", "size is greater than `Config.MaxMapAllocSize`")
 			return
 		}
+		size += l
 
 		if isNil {
-			d.mapType.UnsafeSet(ptr, d.mapType.UnsafeMakeMap(int(l)))
+			d.mapType.UnsafeSet(ptr, d.mapType.UnsafeMakeMap(l))
 			isNil = false
 		}
 

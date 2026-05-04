@@ -627,7 +627,7 @@ func skipToEnd(reader *avro.Reader, sync [16]byte) error {
 			return nil
 		}
 		size := reader.ReadLong()
-		reader.SkipNBytes(int(size))
+		reader.SkipNBytesInt64(size)
 		if reader.Error != nil {
 			return reader.Error
 		}
