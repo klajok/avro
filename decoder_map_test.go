@@ -163,9 +163,7 @@ func TestDecoder_MapMultiBlockExceedsMaxInt(t *testing.T) {
 		0x02, 0x63, 0x02, 0x7a, // "c" -> "z"
 	}
 	// block 2: l = max int - 2
-	w := avro.NewWriter(nil, 0)
-	w.WriteLong(int64(math.MaxInt - 2))
-	data = append(data, w.Buffer()...)
+	data = append(data, avro.EncodeIntToBytes(math.MaxInt-2)...)
 	schema := `{"type":"map", "values": "string"}`
 	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
 	require.NoError(t, err)
@@ -281,9 +279,7 @@ func TestDecoder_MapMultiBlockUnmarshallerExceedsMaxInt(t *testing.T) {
 		0x02, 0x33, 0x02, 0x7a, // "3" -> "z"
 	}
 	// block 2: l = max int - 2
-	w := avro.NewWriter(nil, 0)
-	w.WriteLong(int64(math.MaxInt - 2))
-	data = append(data, w.Buffer()...)
+	data = append(data, avro.EncodeIntToBytes(math.MaxInt-2)...)
 	schema := `{"type":"map", "values": "string"}`
 	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
 	require.NoError(t, err)

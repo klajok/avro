@@ -11,6 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// EncodeIntToBytes encodes an int value as Avro long and returns the bytes.
+func EncodeIntToBytes(value int) []byte {
+	w := NewWriter(nil, 0)
+	w.WriteLong(int64(value))
+	return w.Buffer()
+}
+
 func TestGenericDecode(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -263,9 +270,7 @@ func TestGenericDecode_MaxInt(t *testing.T) {
 		0x00, 0x01, 0x00, // 3 int values
 	}
 	// block 2: l = max int - 2
-	w := NewWriter(nil, 0)
-	w.WriteLong(int64(math.MaxInt - 2))
-	data = append(data, w.Buffer()...)
+	data = append(data, EncodeIntToBytes(math.MaxInt-2)...)
 
 	r := NewReader(bytes.NewReader(data), 10)
 

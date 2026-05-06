@@ -2,6 +2,8 @@ package avro_test
 
 import (
 	"bytes"
+	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,6 +11,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// countingReader wraps an io.Reader and counts all method calls
+type countingReader struct {
+	reader io.Reader
+	count  atomic.Int64
+}
+
+func newCountingReader(data []byte) *countingReader {
+	return &countingReader{
+		reader: bytes.NewReader(data),
+	}
+}
+
+func (cr *countingReader) Read(p []byte) (n int, err error) {
+	cr.count.Add(1)
+	return cr.reader.Read(p)
+}
+
+func (cr *countingReader) getCallCount() int64 {
+	return cr.count.Load()
+}
 
 const decodeTimeout = 100 * time.Millisecond
 
@@ -285,28 +308,26 @@ func TestDecoder_SkipArray(t *testing.T) {
 func TestDecoder_SkipArrayEOF(t *testing.T) {
 	defer ConfigTeardown()
 
-	data := []byte{0xfe, 0x90, 0x90, 0x90, 0x90, 0x90, 0x00, 0x36, 0x36}
+	data := avro.EncodeIntToBytes(200999000)
+	data = append(data, 0x36, 0x36)
 	schema := `{
 	"type": "record",
-	"name": "test_huge_skip",
+	"name": "test_skip",
 	"fields" : [
 		{"name": "a", "type": {"type": "array", "items": "int"}},
 		{"name": "b", "type": "string"}
 	]
 }`
 
-	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	reader := newCountingReader(data)
+	dec, err := avro.NewDecoder(schema, reader)
 	require.NoError(t, err)
 
 	var got TestPartialRecord
 	err = decodeWithTimeout(t, dec, &got)
 
-	// On 64-bit the huge block length consumes the rest of the stream and
-	// surfaces as "unexpected EOF". On 32-bit ReadBlockHeader rejects the
-	// out-of-range length before consumption ("block length is too big").
-	// Both are acceptable; the key invariant verified here is that the
-	// skip path doesn't hang (enforced by decodeWithTimeout).
-	require.Error(t, err)
+	require.ErrorContains(t, err, "unexpected EOF")
+	assert.Less(t, reader.getCallCount(), int64(10), "reader method calls should be much smaller than 200999000")
 }
 
 func TestDecoder_SkipArrayBlocks(t *testing.T) {
@@ -358,7 +379,8 @@ func TestDecoder_SkipMap(t *testing.T) {
 func TestDecoder_SkipMapEOF(t *testing.T) {
 	defer ConfigTeardown()
 
-	data := []byte{0xfe, 0x90, 0x90, 0x90, 0x90, 0x90, 0x00, 0x02, 0x66}
+	data := avro.EncodeIntToBytes(200999000)
+	data = append(data, 0x02, 0x66)
 	schema := `{
 	"type": "record",
 	"name": "test",
@@ -368,16 +390,15 @@ func TestDecoder_SkipMapEOF(t *testing.T) {
 	]
 }`
 
-	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
+	reader := newCountingReader(data)
+	dec, err := avro.NewDecoder(schema, reader)
 	require.NoError(t, err)
 
 	var got TestPartialRecord
 	err = decodeWithTimeout(t, dec, &got)
 
-	// See TestDecoder_SkipArrayEOF — on 32-bit the new ReadBlockHeader
-	// bound rejects the crafted huge length before EOF is reached, and
-	// the test's purpose (no infinite loop) is enforced by the timeout.
-	require.Error(t, err)
+	require.ErrorContains(t, err, "unexpected EOF")
+	assert.Less(t, reader.getCallCount(), int64(10), "reader method calls should be much smaller than 200999000")
 }
 
 func TestDecoder_SkipMapBlocks(t *testing.T) {
