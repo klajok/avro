@@ -711,6 +711,48 @@ func TestReader_ReadBytesLargerThanMaxByteSliceSize(t *testing.T) {
 	assert.Error(t, r.Error)
 }
 
+// On 32-bit, int(1<<32 + 5) truncates to 5 and would silently bypass a
+// MaxByteSliceSize=10 cap. Reading the length as int64 before comparison
+// catches the bypass on every platform.
+func TestReader_ReadBytesTruncationBypassesMaxByteSliceSize(t *testing.T) {
+	avro.DefaultConfig = avro.Config{MaxByteSliceSize: 10}.Freeze()
+	defer ConfigTeardown()
+
+	buf := &bytes.Buffer{}
+	w := avro.NewWriter(buf, 0)
+	w.WriteLong(int64(1)<<32 + 5)
+	require.NoError(t, w.Flush())
+
+	r := avro.NewReader(bytes.NewReader(buf.Bytes()), 10)
+	got := r.ReadBytes()
+
+	assert.Nil(t, got)
+	require.ErrorContains(t, r.Error, "MaxByteSliceSize")
+}
+
+// With MaxByteSliceSize disabled (0), a length above the platform int
+// range would otherwise reach `make([]byte, size)` and panic on 32-bit.
+// The dedicated MaxInt guard rejects it cleanly.
+func TestReader_ReadBytesLengthExceedsPlatformInt(t *testing.T) {
+	if strconv.IntSize != 32 {
+		t.Skipf("only meaningful on 32-bit (have %d-bit)", strconv.IntSize)
+	}
+
+	avro.DefaultConfig = avro.Config{MaxByteSliceSize: -1}.Freeze()
+	defer ConfigTeardown()
+
+	buf := &bytes.Buffer{}
+	w := avro.NewWriter(buf, 0)
+	w.WriteLong(int64(1) << 33)
+	require.NoError(t, w.Flush())
+
+	r := avro.NewReader(bytes.NewReader(buf.Bytes()), 10)
+	got := r.ReadBytes()
+
+	assert.Nil(t, got)
+	require.ErrorContains(t, r.Error, "is too big")
+}
+
 func TestReader_ReadString(t *testing.T) {
 	tests := []struct {
 		data    []byte

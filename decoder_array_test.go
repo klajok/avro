@@ -206,9 +206,7 @@ func TestDecoder_ArraySliceExceedsMaxInt(t *testing.T) {
 		0x00, 0x01, 0x00, // 3 int values
 	}
 	// block 2: l = max int - 2
-	w := avro.NewWriter(nil, 0)
-	w.WriteLong(int64(math.MaxInt - 2))
-	data = append(data, w.Buffer()...)
+	data = append(data, avro.EncodeIntToBytes(math.MaxInt-2)...)
 
 	schema := `{"type":"array", "items": "int"}`
 	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))
@@ -229,9 +227,7 @@ func TestDecoder_ArrayMultiBlockExceedsMaxInt(t *testing.T) {
 		0x00, 0x01, 0x00, // false, true, false
 	}
 	// block 2: l = max int - 2
-	w := avro.NewWriter(nil, 0)
-	w.WriteLong(int64(math.MaxInt - 2))
-	data = append(data, w.Buffer()...)
+	data = append(data, avro.EncodeIntToBytes(math.MaxInt-2)...)
 
 	schema := `{"type":"array", "items": { "type": "boolean" }}`
 	dec, err := avro.NewDecoder(schema, bytes.NewReader(data))

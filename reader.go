@@ -333,20 +333,28 @@ func (r *Reader) ReadString() string {
 }
 
 func (r *Reader) readBytes(op string) []byte {
-	size := int(r.ReadLong())
-	if size < 0 {
-		fnName := "Read" + strings.ToTitle(op)
+	fnName := "Read" + strings.ToTitle(op)
+	size64 := r.ReadLong()
+	if size64 < 0 {
 		r.ReportError(fnName, "invalid "+op+" length")
 		return nil
 	}
-	if size == 0 {
+	if size64 == 0 {
 		return []byte{}
 	}
-	if maxSize := r.cfg.getMaxByteSliceSize(); maxSize > 0 && size > maxSize {
-		fnName := "Read" + strings.ToTitle(op)
+	if maxSize := r.cfg.getMaxByteSliceSize(); maxSize > 0 && size64 > int64(maxSize) {
 		r.ReportError(fnName, "size is greater than `Config.MaxByteSliceSize`")
 		return nil
 	}
+	// MaxByteSliceSize defaults to MaxInt, so the cap above usually catches
+	// oversize lengths. The standalone check defends configurations that
+	// disable the cap or set it above the platform int range.
+	if size64 > math.MaxInt {
+		r.ReportError(fnName, op+" length is too big")
+		return nil
+	}
+
+	size := int(size64)
 
 	// The bytes are entirely in the buffer and of a reasonable size.
 	// Use the byte slab.

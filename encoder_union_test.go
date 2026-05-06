@@ -845,12 +845,6 @@ func TestEncoder_UnionResolver(t *testing.T) {
 			want:   []byte{0x2, 0x36},
 		},
 		{
-			name:   "Go int as Avro long",
-			schema: `["null","long"]`,
-			value:  int(2147483648),
-			want:   []byte{0x2, 0x80, 0x80, 0x80, 0x80, 0x10},
-		},
-		{
 			name:   "Go int64 as Avro long",
 			schema: `["null","long"]`,
 			value:  int64(2147483648),

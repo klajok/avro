@@ -248,3 +248,21 @@ func TestReader_ReadArrayCB_StopsOnError(t *testing.T) {
 	assert.Equal(t, 1, callbackCalls)
 	require.ErrorContains(t, r.Error, "stop")
 }
+
+// On 32-bit, int(1<<32) truncates to 0 and would silently select types[0]
+// without an int64 range check. On 64-bit, the upper-bound check catches
+// it directly. The test asserts rejection on either platform.
+func TestReader_ReadNextUnionIndexOutOfRange(t *testing.T) {
+	schema := avro.MustParse(`["null","long"]`)
+
+	buf := &bytes.Buffer{}
+	w := avro.NewWriter(buf, 0)
+	w.WriteLong(int64(1) << 32)
+	require.NoError(t, w.Flush())
+
+	r := avro.NewReader(bytes.NewReader(buf.Bytes()), 10)
+	got := r.ReadNext(schema)
+
+	assert.Nil(t, got)
+	require.ErrorContains(t, r.Error, "unknown union type")
+}

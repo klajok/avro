@@ -7,7 +7,10 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"math"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1647,4 +1650,59 @@ func TestEncoder_ResetPreservesCodec(t *testing.T) {
 	dec2, err := ocf.NewDecoder(buf2)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("deflate"), dec2.Metadata()["avro.codec"])
+}
+
+// Without bounds checks, `make([]byte, size)` panics on a negative block
+// size and (on 32-bit) when size > MaxInt. The test patches a valid OCF
+// file's first block size and asserts a clean error.
+func TestDecoder_BlockSizeOutOfRange(t *testing.T) {
+	cases := []struct {
+		name    string
+		size    int64
+		wantMsg string
+	}{
+		{"too small", -1, "block size is too small"},
+		{"too big on 32-bit", int64(1) << 33, "block size is too big"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Skip cases whose size still fits in int on this platform —
+			// the bounds check won't fire and `make([]byte, size)` would
+			// actually allocate (potentially gigabytes).
+			if tc.size >= 0 && tc.size <= math.MaxInt {
+				t.Skipf("size fits in int on %d-bit; only out-of-range on smaller", strconv.IntSize)
+			}
+
+			buf := &bytes.Buffer{}
+			enc, err := ocf.NewEncoder(`"long"`, buf)
+			require.NoError(t, err)
+			require.NoError(t, enc.Encode(int64(1)))
+			require.NoError(t, enc.Close())
+
+			raw := buf.Bytes()
+			sync := raw[len(raw)-16:]
+			headerEnd := bytes.Index(raw, sync) + 16
+			// First block: [count varint][size varint][data][sync].
+			require.Equal(t, byte(0x02), raw[headerEnd])
+			sizeOffset := headerEnd + 1
+
+			w := avro.NewWriter(nil, 0)
+			w.WriteLong(tc.size)
+			patched := slices.Concat(raw[:sizeOffset], w.Buffer(), raw[sizeOffset+1:])
+
+			dec, err := ocf.NewDecoder(bytes.NewReader(patched))
+			require.NoError(t, err)
+
+			for dec.HasNext() {
+				var v int64
+				if err := dec.Decode(&v); err != nil {
+					break
+				}
+			}
+
+			require.Error(t, dec.Error())
+			assert.Contains(t, dec.Error().Error(), tc.wantMsg)
+		})
+	}
 }
