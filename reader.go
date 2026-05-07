@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strings"
 	"unsafe"
 )
 
@@ -319,12 +318,12 @@ func (r *Reader) readDoubleSlow() float64 {
 
 // ReadBytes reads Bytes from the Reader.
 func (r *Reader) ReadBytes() []byte {
-	return r.readBytes("bytes")
+	return r.readBytes("ReadBytes", "bytes")
 }
 
 // ReadString reads a String from the Reader.
 func (r *Reader) ReadString() string {
-	b := r.readBytes("string")
+	b := r.readBytes("ReadString", "string")
 	if len(b) == 0 {
 		return ""
 	}
@@ -332,8 +331,7 @@ func (r *Reader) ReadString() string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
-func (r *Reader) readBytes(op string) []byte {
-	fnName := "Read" + strings.ToTitle(op)
+func (r *Reader) readBytes(fnName, op string) []byte {
 	size64 := r.ReadLong()
 	if size64 < 0 {
 		r.ReportError(fnName, "invalid "+op+" length")
