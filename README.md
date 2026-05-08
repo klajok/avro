@@ -226,11 +226,15 @@ This requires the use of `map[string]any` or `[]any`.
 The type conversion for encoding will receive the original value that is to be encoded, and must return a data type that is compatible with the schema, as specified in the table above.
 The type conversion for decoding will receive the decoded value with a data type that is compatible with the schema, and its return value will be used as the final decoded value.
 
-#### Untrusted Input With Bytes and Strings
+#### Untrusted Input
 
-For security reasons, the configuration `Config.MaxByteSliceSize` restricts the maximum size of `bytes` and `string` types created
-by the `Reader`. The default maximum size is `1MiB` and is configurable. This is required to stop untrusted input from consuming all memory and
-crashing the application. Should this not be need, setting a negative number will disable the behaviour.
+When processing untrusted Avro data, it is important to configure protection against Denial of Service (DoS) attacks. The library provides three configuration options to limit resource allocation:
+
+- `Config.MaxByteSliceSize` - Restricts the maximum size of `bytes` and `string` types (default: `1MiB`)
+- `Config.MaxSliceAllocSize` - Limits the maximum size of slice allocations (default: unlimited)
+- `Config.MaxMapAllocSize` - Limits the maximum size of map allocations (default: unlimited)
+
+For comprehensive security considerations and configuration requirements, please refer to [SECURITY.md](SECURITY.md).
 
 ## Benchmark
 
