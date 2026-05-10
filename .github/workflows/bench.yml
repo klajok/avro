@@ -23,8 +23,8 @@ jobs:
     timeout-minutes: 30
     env:
       GO_VERSION: "1.26"
-      BENCH_COUNT: "6"
-      BENCH_TIME: "200ms"
+      BENCH_COUNT: "20"
+      BENCH_TIME: "50ms"
       BENCH_PATTERN: "."
       BENCH_PACKAGES: "./..."
 
@@ -78,6 +78,8 @@ jobs:
       - name: Benchmark base
         env:
           BASE_SHA: ${{ steps.shas.outputs.base }}
+          GOGC: "off"
+          GOMEMLIMIT: "1GiB"
         run: |
           set -euo pipefail
           git checkout --detach "$BASE_SHA"
@@ -88,6 +90,8 @@ jobs:
       - name: Benchmark head
         env:
           HEAD_SHA: ${{ steps.shas.outputs.head }}
+          GOGC: "off"
+          GOMEMLIMIT: "1GiB"
         run: |
           set -euo pipefail
           git checkout --detach "$HEAD_SHA"
@@ -112,6 +116,73 @@ jobs:
             const fs = require('fs');
             const { BASE_SHA, HEAD_SHA, BENCH_COUNT, BENCH_TIME, RESULT_FILE, OUTPUT_FILE } = process.env;
 
+            const UNITS = { '': 1, n: 1e-9, 'µ': 1e-6, 'μ': 1e-6, m: 1e-3, k: 1e3, M: 1e6, G: 1e9, Ki: 1024, Mi: 1024 ** 2, Gi: 1024 ** 3 };
+            function parseValue(s) {
+              const m = s.match(/^([\d.]+)([a-zA-Zµμ]*)$/);
+              if (!m) return NaN;
+              const u = UNITS[m[2]];
+              return u === undefined ? NaN : parseFloat(m[1]) * u;
+            }
+
+            function parseBenchstat(text) {
+              const lines = text.split('\n');
+              const records = [];
+              let pkg = '';
+              let metric = null;
+              const re = /^(\S+)\s+(\S+)\s+±\s*(\d+(?:\.\d+)?)%\s+(\S+)\s+±\s*(\d+(?:\.\d+)?)%\s+(?:(~)|([+-]?\d+(?:\.\d+)?)%)\s+\(p=([\d.]+|nan)\s+n=(\d+)\)/;
+              for (const line of lines) {
+                if (line.startsWith('pkg:')) { pkg = line.slice(4).trim(); metric = null; continue; }
+                const mh = line.match(/│\s*(sec\/op|B\/s|B\/op|allocs\/op)\s*│/);
+                if (mh) { metric = mh[1]; continue; }
+                if (!metric) continue;
+                const t = line.trim();
+                if (!t || t.startsWith('geomean') || t.startsWith('¹') || t.startsWith('²')) continue;
+                const m = line.match(re);
+                if (!m) continue;
+                const baseVal = parseValue(m[2]);
+                const headVal = parseValue(m[4]);
+                const delta = m[7] !== undefined
+                  ? parseFloat(m[7])
+                  : (baseVal === 0 ? null : ((headVal - baseVal) / baseVal) * 100);
+                const p = m[8] === 'nan' ? NaN : parseFloat(m[8]);
+                records.push({ pkg, name: m[1], metric, delta, p });
+              }
+              return records;
+            }
+
+            function fmtDelta(d) {
+              const sign = d >= 0 ? '+' : '−';
+              return `${sign}${Math.abs(d).toFixed(2)}%`;
+            }
+
+            function fmtBench(b) {
+              return `\`${b.name}\` ${fmtDelta(b.delta)} ${b.metric} (p=${b.p.toFixed(3)})`;
+            }
+
+            function summarise(records) {
+              // Consider sec/op (CPU), B/op (memory), allocs/op (allocations) — same scale (%).
+              const tracked = records.filter(r =>
+                (r.metric === 'sec/op' || r.metric === 'B/op' || r.metric === 'allocs/op') &&
+                r.delta !== null
+              );
+              const sorted = [...tracked].sort((a, b) => a.delta - b.delta);
+              const minDelta = sorted[0];
+              const maxDelta = sorted[sorted.length - 1];
+              const bestImprovement = minDelta && minDelta.delta < 0 ? minDelta : null;
+              const worstRegression = maxDelta && maxDelta.delta > 0 ? maxDelta : null;
+
+              const changed = new Set();
+              for (const r of records) {
+                if (r.delta === null) continue;
+                const t = r.metric === 'sec/op' ? 5
+                       : (r.metric === 'B/op' || r.metric === 'allocs/op') ? 0.5
+                       : null;
+                if (t !== null && Math.abs(r.delta) > t) changed.add(`${r.pkg}|${r.name}`);
+              }
+              const total = new Set(records.map(r => `${r.pkg}|${r.name}`)).size;
+              return { bestImprovement, worstRegression, changedCount: changed.size, total };
+            }
+
             let result = '';
             try {
               result = fs.readFileSync(RESULT_FILE, 'utf8').trim();
@@ -122,34 +193,47 @@ jobs:
             const baseShort = BASE_SHA.slice(0, 7);
             const headShort = HEAD_SHA.slice(0, 7);
 
-            const body = result
-              ? [
-                  '## Benchmark report',
-                  '',
-                  `\`${baseShort}\` (base, merge-base) vs \`${headShort}\` (head)`,
-                  `Configuration: \`-count=${BENCH_COUNT} -benchtime=${BENCH_TIME}\` on \`ubuntu-latest\``,
-                  '',
-                  '<details open>',
-                  '<summary><code>benchstat</code> output</summary>',
-                  '',
-                  '```',
-                  result,
-                  '```',
-                  '',
-                  '</details>',
-                  '',
-                  '> Numbers from `ubuntu-latest` are noisy (typical ±5–15%). Treat this report',
-                  "> as advisory: a flagged regression isn't always real, and an unflagged change",
-                  "> isn't always safe. Re-run the workflow to confirm a suspicious result, and",
-                  '> profile locally on a quiet machine before acting.',
-                ].join('\n')
-              : [
-                  '## Benchmark report',
-                  '',
-                  `\`${baseShort}\` (base) vs \`${headShort}\` (head).`,
-                  '',
-                  'No benchmark output to compare.',
-                ].join('\n');
+            let body;
+            if (!result) {
+              body = [
+                '## Benchmark report',
+                '',
+                `\`${baseShort}\` (base) vs \`${headShort}\` (head).`,
+                '',
+                'No benchmark output to compare.',
+              ].join('\n');
+            } else {
+              const s = summarise(parseBenchstat(result));
+              const summaryLines = [
+                '**Summary**',
+                '',
+                `- Worst regression: ${s.worstRegression ? fmtBench(s.worstRegression) : 'none'}`,
+                `- Best improvement: ${s.bestImprovement ? fmtBench(s.bestImprovement) : 'none'}`,
+                `- Changed beyond noise floor (>5% sec/op or >0.5% B/op or >0.5% allocs/op): **${s.changedCount}** of ${s.total} benchmarks`,
+              ];
+              body = [
+                '## Benchmark report',
+                '',
+                `\`${baseShort}\` (base, merge-base) vs \`${headShort}\` (head)`,
+                `Configuration: \`-count=${BENCH_COUNT} -benchtime=${BENCH_TIME}\` on \`ubuntu-latest\` (\`GOGC=off GOMEMLIMIT=1GiB\`)`,
+                '',
+                ...summaryLines,
+                '',
+                '<details>',
+                '<summary><code>benchstat</code> output</summary>',
+                '',
+                '```',
+                result,
+                '```',
+                '',
+                '</details>',
+                '',
+                '> Numbers from `ubuntu-latest` are noisy (typical ±1–4% with `GOGC=off`). Treat',
+                "> this report as advisory: a flagged regression isn't always real, and an",
+                "> unflagged change isn't always safe. Re-run the workflow to confirm a",
+                '> suspicious result, and profile locally on a quiet machine before acting.',
+              ].join('\n');
+            }
 
             fs.writeFileSync(OUTPUT_FILE, body);
             core.info(`Wrote comment body to ${OUTPUT_FILE}`);
