@@ -156,31 +156,27 @@ jobs:
             }
 
             function fmtBench(b) {
-              return `\`${b.name}\` ${fmtDelta(b.delta)} ${b.metric} (p=${b.p.toFixed(3)})`;
+              return `\`${b.name}\` ${fmtDelta(b.delta)} (p=${b.p.toFixed(3)})`;
             }
 
-            function summarise(records) {
-              // Consider sec/op (CPU), B/op (memory), allocs/op (allocations) — same scale (%).
-              const tracked = records.filter(r =>
-                (r.metric === 'sec/op' || r.metric === 'B/op' || r.metric === 'allocs/op') &&
-                r.delta !== null
-              );
+            const THRESHOLDS = { 'sec/op': 5, 'B/op': 0.5, 'allocs/op': 0.5 };
+
+            function summariseMetric(records, metric) {
+              const forMetric = records.filter(r => r.metric === metric);
+              const total = new Set(forMetric.map(r => `${r.pkg}|${r.name}`)).size;
+              const tracked = forMetric.filter(r => r.delta !== null);
               const sorted = [...tracked].sort((a, b) => a.delta - b.delta);
               const minDelta = sorted[0];
               const maxDelta = sorted[sorted.length - 1];
-              const bestImprovement = minDelta && minDelta.delta < 0 ? minDelta : null;
-              const worstRegression = maxDelta && maxDelta.delta > 0 ? maxDelta : null;
-
-              const changed = new Set();
-              for (const r of records) {
-                if (r.delta === null) continue;
-                const t = r.metric === 'sec/op' ? 5
-                       : (r.metric === 'B/op' || r.metric === 'allocs/op') ? 0.5
-                       : null;
-                if (t !== null && Math.abs(r.delta) > t) changed.add(`${r.pkg}|${r.name}`);
-              }
-              const total = new Set(records.map(r => `${r.pkg}|${r.name}`)).size;
-              return { bestImprovement, worstRegression, changedCount: changed.size, total };
+              const t = THRESHOLDS[metric];
+              const changed = tracked.filter(r => Math.abs(r.delta) > t).length;
+              return {
+                bestImprovement: minDelta && minDelta.delta < 0 ? minDelta : null,
+                worstRegression: maxDelta && maxDelta.delta > 0 ? maxDelta : null,
+                changed,
+                total,
+                threshold: t,
+              };
             }
 
             let result = '';
@@ -203,14 +199,19 @@ jobs:
                 'No benchmark output to compare.',
               ].join('\n');
             } else {
-              const s = summarise(parseBenchstat(result));
+              const records = parseBenchstat(result);
               const summaryLines = [
                 '**Summary**',
                 '',
-                `- Worst regression: ${s.worstRegression ? fmtBench(s.worstRegression) : 'none'}`,
-                `- Best improvement: ${s.bestImprovement ? fmtBench(s.bestImprovement) : 'none'}`,
-                `- Changed beyond noise floor (>5% sec/op or >0.5% B/op or >0.5% allocs/op): **${s.changedCount}** of ${s.total} benchmarks`,
+                '| Metric | Worst regression | Best improvement | Changed |',
+                '|---|---|---|--:|',
               ];
+              for (const metric of ['sec/op', 'B/op', 'allocs/op']) {
+                const s = summariseMetric(records, metric);
+                const wr = s.worstRegression ? fmtBench(s.worstRegression) : 'none';
+                const bi = s.bestImprovement ? fmtBench(s.bestImprovement) : 'none';
+                summaryLines.push(`| \`${metric}\` (>${s.threshold}%) | ${wr} | ${bi} | **${s.changed}** of ${s.total} |`);
+              }
               body = [
                 '## Benchmark report',
                 '',
